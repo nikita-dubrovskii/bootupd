@@ -620,13 +620,30 @@ impl RootContext {
 fn prep_before_update() -> Result<Option<RootContext>> {
     let path = "/";
     let sysroot = openat::Dir::open(path).context("Opening root dir")?;
-    let Some(device) = list_dev_current_root()? else {
-        println!(
-            "No block-backed boot filesystem found; bootloader update is not applicable, skipping."
-        );
-        return Ok(None);
-    };
-    Ok(Some(RootContext::new(sysroot, path, device)))
+
+    match list_dev_current_root()? {
+        Some(device) => {
+            let fstype = device
+                .fstype
+                .as_deref()
+                .ok_or_else(|| anyhow!("Device filesystem type is missing"))?;
+
+            if matches!(fstype, "iso9660" | "erofs" | "squashfs") {
+                println!(
+                    "Detected live filesystem: {}, skipping bootloader update.",
+                    fstype
+                );
+                return Ok(None);
+            }
+            Ok(Some(RootContext::new(sysroot, path, device)))
+        }
+        None => {
+            println!(
+                "No block-backed boot filesystem found; bootloader update is not applicable, skipping."
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub(crate) fn client_run_update() -> Result<()> {
